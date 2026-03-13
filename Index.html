@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Indoor Map & Routing</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root { --primary: #3643BA; --bg: #f4f7f6; --text: #2c3e50; }
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--text); }
+    #app-container { display: flex; height: 100%; width: 100%; }
+    
+    #sidebar { width: 360px; background: #ffffff; display: flex; flex-direction: column; border-right: 1px solid #eaeaea; z-index: 1000; box-shadow: 4px 0 15px rgba(0,0,0,0.03); }
+    #map { flex-grow: 1; height: 100%; background: #e0e0e0; cursor: grab; outline: none; position: relative; }
+    
+    .header { padding: 20px 20px 15px; background: var(--primary); color: white; }
+    .controls { display: flex; flex-direction: column; gap: 10px; }
+    input, select, textarea { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-family: inherit; font-size: 14px; background: #ffffff; transition: all 0.2s; outline: none; color: #333; }
+    input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(54, 67, 186, 0.2); }
+    #searchBox { background-color: #ffffff !important; border: none; }
+    #roomCounter { font-size: 12px; opacity: 0.9; margin-top: 5px; font-weight: 500; }
+    
+    #roomList { flex-grow: 1; overflow-y: auto; padding: 10px; margin: 0; list-style: none; background: #fafafa; }
+    #roomList::-webkit-scrollbar { width: 6px; }
+    #roomList::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
+    .room-item { padding: 10px 15px; background: #fff; border-radius: 8px; margin-bottom: 6px; border: 1px solid #eee; cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; }
+    .room-item:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.05); border-color: #dcdcdc; }
+    
+    .room-header { display: flex; align-items: center; gap: 8px; width: 100%; position: relative; }
+    .room-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+    .zone-badge { font-size: 10px; padding: 3px 6px; border-radius: 12px; color: white; font-weight: 600; white-space: nowrap; }
+    
+    /* EMPTY STATE */
+    .empty-state { text-align: center; padding: 40px 20px; color: #7f8c8d; }
+    .empty-state h3 { font-size: 16px; margin-bottom: 10px; color: #2c3e50; }
+    .empty-state p { font-size: 14px; margin: 0; line-height: 1.5; }
+    
+    .action-btns { display: flex; gap: 5px; margin-left: auto; position: relative; }
+    .icon-btn { background: none; border: none; cursor: pointer; font-size: 14px; opacity: 0.3; transition: opacity 0.2s, transform 0.2s; padding: 4px; }
+    .room-item:hover .icon-btn { opacity: 1; }
+    .icon-btn:hover { transform: scale(1.2); }
+
+    .actions { padding: 15px; background: #fff; border-top: 1px solid #eee; display:flex; flex-direction:column; gap:10px;}
+    .btn-primary { width: 100%; padding: 12px; cursor: pointer; border: none; border-radius: 8px; font-weight: 600; background: var(--primary); color: white; transition: background 0.2s; }
+    .btn-primary:hover { background: #283395; }
+    .btn-admin-route { background: #e0e0e0; color: #333; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold; transition: opacity 0.2s; }
+    .btn-admin-route:hover { background: #ccc; }
+
+    /* Top Right Controls */
+    .top-right-controls { position: absolute; top: 15px; right: 15px; z-index: 1000; display: flex; gap: 10px; }
+    .top-btn { background: white; color: var(--text); border: 1px solid #ddd; padding: 8px 12px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.1); transition: transform 0.2s, background 0.2s; }
+    .top-btn:hover { transform: scale(1.05); background: #f8f9fa; }
+
+    #btnResetView { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1000; background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; box-shadow: 0 4px 10px rgba(54, 67, 186, 0.3); transition: transform 0.2s, background 0.2s; display: none; }
+    #btnResetView:hover { background: #283395; transform: translateX(-50%) scale(1.05); }
+
+    #btnClearRoute { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); z-index: 1000; background: white; color: #e74c3c; border: 1px solid #e74c3c; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.15); transition: transform 0.2s, background 0.2s; display: none; }
+    #btnClearRoute:hover { background: #ffe6e6; transform: translateX(-50%) scale(1.05); }
+    
+    /* Pop-up Actions */
+    .popup-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+    .popup-btn { flex: 1; min-width: 45%; border: none; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 4px; transition: background 0.2s;}
+    
+    .popup-route-btn { background: #27ae60; color: white; flex-basis: 100%; font-size: 14px; padding: 10px;}
+    .popup-route-btn:hover { background: #219653; }
+    .popup-share-btn { background: #f39c12; color: white; } 
+    .popup-share-btn:hover { background: #d68910; }
+    .popup-edit-btn { background: #e0e0e0; color: #333; } 
+    .popup-edit-btn:hover { background: #ccc; }
+
+    /* Markers */
+    .pulsing-marker { width: 20px; height: 20px; background: #dc3545; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 0 rgba(220, 53, 69, 0.4); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); } 70% { box-shadow: 0 0 0 15px rgba(220, 53, 69, 0); } 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); } }
+    
+    .gray-marker { width: 12px; height: 12px; background: #95a5a6; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3); transition: transform 0.2s, background 0.2s; cursor: pointer; }
+    .gray-marker:hover { transform: scale(1.5); background: var(--primary); }
+    .start-marker { width: 16px; height: 16px; background: #27ae60; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 10px rgba(39,174,96,0.6); }
+
+    .custom-tooltip { background: rgba(0,0,0,0.8); color: white; border: none; border-radius: 4px; font-weight: 600; font-size: 12px; padding: 4px 8px; box-shadow: none; }
+    .leaflet-tooltip-left:before, .leaflet-tooltip-right:before, .leaflet-tooltip-top:before, .leaflet-tooltip-bottom:before { display: none; }
+    .leaflet-bar { border: none !important; box-shadow: 0 4px 15px rgba(0,0,0,0.15) !important; margin-top: 15px !important; margin-left: 15px !important; border-radius: 8px; overflow: hidden; }
+    .leaflet-bar a { background-color: rgba(255,255,255,0.9) !important; color: var(--primary) !important; width: 40px !important; height: 40px !important; line-height: 40px !important; font-size: 18px !important; font-weight: bold !important; border-bottom: 1px solid #eee !important; transition: background 0.2s, color 0.2s !important; }
+    .leaflet-bar a:hover { background-color: var(--primary) !important; color: white !important; }
+    .leaflet-bar a:last-child { border-bottom: none !important; }
+
+    /* GPS PATH ANIMATION */
+    .path-flow-anim { animation: flowAnim 1s linear infinite; pointer-events: none; }
+    @keyframes flowAnim { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
+
+    /* Banners & Toasts */
+    #statusBanner { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); background: #2c3e50; color: white; padding: 12px 25px; border-radius: 30px; z-index: 2000; display: none; box-shadow: 0 4px 15px rgba(0,0,0,0.2); font-weight: 500; font-size: 14px; text-align: center; }
+    #statusBanner button { padding: 6px 12px; margin-left: 15px; background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 15px; cursor: pointer; font-weight:bold; transition: background 0.2s;}
+    #statusBanner button:hover { background: rgba(255,255,255,0.3); }
+    #statusBanner button.danger { background: #e74c3c; }
+    #statusBanner button.danger:hover { background: #c0392b; }
+
+    #toastBanner { position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-20px); background: #27ae60; color: white; padding: 12px 25px; border-radius: 30px; z-index: 4000; box-shadow: 0 4px 15px rgba(0,0,0,0.2); font-weight: 600; font-size: 14px; transition: opacity 0.3s, transform 0.3s; opacity: 0; pointer-events: none; }
+    #toastBanner.toast-show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* Modals */
+    #modalOverlay, #feedbackModalOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); backdrop-filter: blur(3px); z-index: 3000; justify-content: center; align-items: center; }
+    .custom-modal { background: white; padding: 25px; border-radius: 12px; width: 380px; max-width: 90%; box-sizing: border-box; box-shadow: 0 10px 30px rgba(0,0,0,0.2); display: flex; flex-direction: column; gap: 15px; border: 1px solid #eee;}
+    .custom-modal h3 { margin: 0; color: var(--text); font-size: 18px; }
+    #btnReposition { background: #e9ecef; color: #333; padding: 10px; border: 1px dashed #ccc; border-radius: 8px; cursor: pointer; font-weight: 600; display: none; }
+    .modal-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 5px; }
+    .modal-actions-right { display: flex; gap: 10px;}
+    .btn-cancel { background: #f1f1f1; color: #333; padding: 10px 15px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
+    .btn-save { background: var(--primary); color: white; padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
+
+    /* MOBILE RESPONSIVE DESIGN */
+    @media (max-width: 768px) {
+      #app-container { flex-direction: column-reverse; }
+      #sidebar { width: 100%; height: 45%; max-height: 45%; border-right: none; border-top: 2px solid #ddd; z-index: 2000; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); }
+      #map { width: 100%; height: 55%; flex-grow: 0; }
+      .header { padding: 15px; }
+      .header h2 { font-size: 18px; margin-bottom: 10px; }
+      .top-right-controls { top: 10px; right: 10px; flex-direction: column; gap: 5px; }
+      .top-btn { padding: 6px 10px; font-size: 11px; }
+      #btnResetView { top: 10px; left: 50px; transform: none; font-size: 11px; padding: 8px 12px; }
+      #btnClearRoute { top: 50px; left: 50px; transform: none; font-size: 11px; padding: 8px 12px; }
+      #statusBanner { bottom: calc(45% + 15px); width: 85%; padding: 10px; font-size: 12px; }
+      .leaflet-popup-content { margin: 10px; font-size: 13px; }
+      .popup-actions { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="app-container">
+    <div id="sidebar">
+      <div class="header">
+        <div class="controls">
+          <input type="text" id="searchBox" data-i18n-placeholder="searchPlace">
+          <select id="zoneFilter">
+            <option value="All">All zones</option>
+            <option value="Zone A">Zone A</option>
+            <option value="Zone B">Zone B</option>
+            <option value="Zone C">Zone C</option>
+            <option value="Common">Common Area</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div id="roomCounter" data-i18n="loading">Loading...</div>
+      </div>
+      <ul id="roomList"></ul>
+      <div class="actions">
+        <button class="btn-primary" onclick="toggleAddMode()" data-i18n="addRoom">+ Add a room</button>
+        <button class="btn-admin-route" onclick="toggleNetworkMode()" data-i18n="adminMode">🛠️ Route Mode (Admin)</button>
+      </div>
+    </div>
+
+    <div id="map">
+      <div class="top-right-controls">
+        <button id="btnFeedback" class="top-btn" onclick="openFeedbackModal()" data-i18n="feedbackBtn">💬 Feedback</button>
+        <button id="btnLang" class="top-btn" onclick="toggleLanguage()">🌍 Français</button>
+      </div>
+      <button id="btnResetView" onclick="resetMapView()" data-i18n="reset">Reset view</button>
+      <button id="btnClearRoute" onclick="clearRoute()" data-i18n="clearRoute">❌ Clear route</button>
+    </div>
+  </div>
+  
+  <div id="statusBanner"></div>
+  <div id="toastBanner"></div>
+
+  <div id="modalOverlay">
+    <div class="custom-modal">
+      <h3 id="modalTitle">New room</h3>
+      <input type="text" id="roomName" data-i18n-placeholder="roomName" required>
+      <select id="roomZone">
+        <option value="Zone A" selected>Zone A</option>
+        <option value="Zone B">Zone B</option>
+        <option value="Zone C">Zone C</option>
+        <option value="Common">Common Area</option>
+        <option value="Other">Other</option>
+      </select>
+      <textarea id="roomInfo" data-i18n-placeholder="roomInfo" rows="3"></textarea>
+      <button type="button" id="btnReposition" onclick="startRepositionMode()" data-i18n="editLoc">📍 Edit location</button>
+      
+      <div class="modal-actions">
+        <button type="button" id="btnDeleteRoom" class="btn-cancel" style="background:#e74c3c; color:white; display:none;" onclick="deleteRoomFromModal()" data-i18n="delete">🗑️ Delete</button>
+        <div class="modal-actions-right">
+          <button type="button" class="btn-cancel" onclick="closeModal()" data-i18n="cancel">Cancel</button>
+          <button type="button" class="btn-save" onclick="saveRoom()" data-i18n="save">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="feedbackModalOverlay">
+    <div class="custom-modal">
+      <h3 data-i18n="feedbackTitle">💬 Send Feedback</h3>
+      <p style="font-size:13px; color:#555; margin:0;" data-i18n="feedbackDesc">A comment, a bug, an idea for improvement?</p>
+      <textarea id="feedbackText" data-i18n-placeholder="feedbackMsg" rows="4"></textarea>
+      <div class="modal-actions" style="justify-content: flex-end;">
+        <button type="button" class="btn-cancel" onclick="closeFeedbackModal()" data-i18n="cancel">Cancel</button>
+        <button type="button" class="btn-save" onclick="submitFeedback()" data-i18n="send">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.js"></script>
+
+  <script>
+    // ==========================================
+    // CONFIGURATION - TO BE MODIFIED BY YOU
+    // ==========================================
+    const IMAGE_URL = 'https://via.placeholder.com/4000x2000.png?text=Your+Map+Here'; 
+    const IMAGE_WIDTH = 4000; 
+    const IMAGE_HEIGHT = 2000; 
+    const ADMIN_PASSWORD = 'admin'; 
+    // ==========================================
+
+    const dict = {
+      fr: {
+        searchPlace: "Rechercher une salle...", allZones: "Toutes les zones", addRoom: "+ Ajouter une salle", adminMode: "🛠️ Mode Routier (Admin)",
+        reset: "Réinitialiser", clearRoute: "❌ Effacer l'itinéraire", loading: "Chargement...", rooms: "salle", s: "s",
+        emptyTitle: "Tu ne trouves pas la salle ?", emptyDesc: "Aide la communauté en l'ajoutant ici 👇",
+        go: "🚶 Y aller", edit: "✏️ Modifier", share: "🔗 Partager", delete: "🗑️ Supprimer", noInfo: "Aucune information.",
+        cancel: "Annuler", save: "Enregistrer", close: "Fermer", quit: "Quitter", newRoom: "Nouvelle salle", editRoom: "Modifier la salle",
+        roomName: "Nom de la salle", roomInfo: "Informations...", editLoc: "📍 Modifier l'emplacement sur la carte",
+        feedbackBtn: "💬 Feedback", feedbackTitle: "💬 Envoyer un Feedback", feedbackDesc: "Une remarque, un bug, une idée d'amélioration ?",
+        feedbackMsg: "Votre message...", send: "Envoyer", reqName: "Le nom de la salle est obligatoire.", saving: "Sauvegarde en cours...",
+        updated: "Salle modifiée !", created: "Salle créée !", deleted: "Salle supprimée !", delConfirm: "Voulez-vous vraiment supprimer cette salle ?", copied: "Lien copié !", cantCopy: "Impossible de copier. Voici le lien :",
+        noLoc: "Emplacement non défini.", startRouteMsg: "Cliquez sur <b>une autre salle</b> ou n'importe où sur la carte pour définir votre point de départ.",
+        routeCalc: "Itinéraire calculé !", noNet: "Réseau insuffisant. Tracé direct.", disconnected: "Réseau déconnecté. Tracé direct.",
+        pwdReq: "⚠️ Accès restreint : Saisissez le mot de passe administrateur :", pwdErr: "Mot de passe incorrect",
+        feedbackSent: "Message envoyé, merci !", feedbackErr: "Erreur lors de l'envoi",
+        "Zone A": "Zone A", "Zone B": "Zone B", "Zone C": "Zone C", "Common": "Commun", "Other": "Autre",
+        langBtn: "🌍 English"
+      },
+      en: {
+        searchPlace: "Search a room...", allZones: "All zones", addRoom: "+ Add a room", adminMode: "🛠️ Route Mode (Admin)",
+        reset: "Reset view", clearRoute: "❌ Clear route", loading: "Loading...", rooms: "room", s: "s",
+        emptyTitle: "Can't find your room?", emptyDesc: "Help the community by adding it here 👇",
+        go: "🚶 Go there", edit: "✏️ Edit", share: "🔗 Share", delete: "🗑️ Delete", noInfo: "No information.",
+        cancel: "Cancel", save: "Save", close: "Close", quit: "Quit", newRoom: "New room", editRoom: "Edit room",
+        roomName: "Room name", roomInfo: "Information...", editLoc: "📍 Edit location on map",
+        feedbackBtn: "💬 Feedback", feedbackTitle: "💬 Send Feedback", feedbackDesc: "A comment, a bug, an idea for improvement?",
+        feedbackMsg: "Your message...", send: "Send", reqName: "Room name is required.", saving: "Saving...",
+        updated: "Room updated!", created: "Room created!", deleted: "Room deleted!", delConfirm: "Are you sure you want to delete this room?", copied: "Link copied!", cantCopy: "Cannot copy. Here is the link:",
+        noLoc: "Location not defined.", startRouteMsg: "Click on <b>another room</b> or anywhere on the map to set your starting point.",
+        routeCalc: "Route calculated!", noNet: "Insufficient network. Direct path.", disconnected: "Network disconnected. Direct path.",
+        pwdReq: "⚠️ Restricted access: Enter admin password:", pwdErr: "Incorrect password",
+        feedbackSent: "Message sent, thank you!", feedbackErr: "Error while sending",
+        "Zone A": "Zone A", "Zone B": "Zone B", "Zone C": "Zone C", "Common": "Common Area", "Other": "Other",
+        langBtn: "🌍 Français"
+      }
+    };
+
+    let currentLang = 'en'; // Default to English
+    function t(key) { return dict[currentLang][key] || key; }
+
+    function toggleLanguage() {
+      currentLang = currentLang === 'en' ? 'fr' : 'en';
+      updateStaticTexts();
+      applyFilters();
+      if (currentMarker) currentMarker.closePopup(); 
+    }
+
+    function updateStaticTexts() {
+      document.querySelectorAll('[data-i18n]').forEach(el => el.innerHTML = t(el.getAttribute('data-i18n')));
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => el.placeholder = t(el.getAttribute('data-i18n-placeholder')));
+      
+      const filter = document.getElementById('zoneFilter');
+      Array.from(filter.options).forEach(opt => { opt.text = opt.value === 'All' ? t('allZones') : t(opt.value); });
+      Array.from(document.getElementById('roomZone').options).forEach(opt => opt.text = t(opt.value));
+      document.getElementById('btnLang').innerHTML = t('langBtn');
+    }
+
+    const requestedRoomId = "<?= requestedRoomId ?>";
+    const scriptBaseUrl = "<?= scriptUrl ?>";
+
+    let map = L.map('map', { crs: L.CRS.Simple, minZoom: -3, maxZoom: 2, scrollWheelZoom: false, zoomSnap: 0.1, maxBoundsViscosity: 0.8 });
+    const bounds = [[0, 0], [IMAGE_HEIGHT, IMAGE_WIDTH]];
+    map.setMaxBounds([[-1000, -1000], [IMAGE_HEIGHT + 1000, IMAGE_WIDTH + 1000]]);
+    L.imageOverlay(IMAGE_URL, bounds).addTo(map);
+    map.fitBounds(bounds);
+
+    let initialZoom = null; let initialCenter = null;
+    let backgroundMarkersGroup = L.layerGroup().addTo(map);
+    let networkLayerGroup = L.layerGroup().addTo(map); 
+    let routingLayerGroup = L.layerGroup().addTo(map); 
+
+    setTimeout(() => { 
+      map.invalidateSize(); map.fitBounds(bounds); 
+      initialZoom = map.getZoom(); initialCenter = map.getCenter(); map.setMinZoom(initialZoom); 
+      updateStaticTexts(); 
+    }, 500);
+
+    window.addEventListener('resize', () => { setTimeout(() => { map.invalidateSize(); }, 200); });
+
+    map.getContainer().addEventListener('wheel', function(e) {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const point = map.mouseEventToContainerPoint(e);
+        map.setZoomAround(point, map.getZoom() + (e.deltaY > 0 ? -1 : 1) * 0.15, { animate: false });
+      } else map.panBy([e.deltaX, e.deltaY], { animate: false });
+    }, { passive: false });
+
+    map.on('moveend', () => {
+      if (!initialZoom) return;
+      const btn = document.getElementById('btnResetView');
+      btn.style.display = (Math.abs(map.getZoom() - initialZoom) > 0.05 || Math.abs(map.getCenter().lng - initialCenter.lng) > 50 || Math.abs(map.getCenter().lat - initialCenter.lat) > 50) ? 'block' : 'none';
+    });
+
+    function resetMapView() { map.flyToBounds(bounds, { duration: 0.4 }); if (currentMarker) currentMarker.closePopup(); }
+
+    let roomsData = []; let fuse = null; let currentMarker = null;
+    let activeRoomId = null; let pendingCoords = null; let mode = 'view'; 
+    let nodesData = []; let edgesData = [];
+    let activeNetworkNode = null; let activeNetworkEdge = null; let lastEdgeClickLatLng = null; 
+    let targetRoomForRouting = null;
+
+    const roomListEl = document.getElementById('roomList');
+    const searchBox = document.getElementById('searchBox');
+    const zoneFilter = document.getElementById('zoneFilter');
+    const counterEl = document.getElementById('roomCounter');
+    const statusBanner = document.getElementById('statusBanner');
+
+    const pulsingIcon = L.divIcon({ className: 'custom-div-icon', html: "<div class='pulsing-marker'></div>", iconSize: [20, 20], iconAnchor: [10, 10] });
+    const grayIcon = L.divIcon({ className: 'custom-div-icon', html: "<div class='gray-marker'></div>", iconSize: [12, 12], iconAnchor: [6, 6] });
+    const startIcon = L.divIcon({ className: 'custom-div-icon', html: "<div class='start-marker'></div>", iconSize: [16, 16], iconAnchor: [8, 8] });
+    const zoneColors = { 'Zone A': '#f39c12', 'Zone B': '#27ae60', 'Zone C': '#2980b9', 'Common': '#8e44ad', 'Other': '#bdc3c7' };
+
+    window.onload = function() {
+      google.script.run.withSuccessHandler(initApp).getRooms();
+      google.script.run.withSuccessHandler((network) => { nodesData = network.nodes; edgesData = network.edges; }).getNetwork();
+    };
+
+    function initApp(data) {
+      roomsData = data;
+      fuse = new Fuse(roomsData, { keys: ['name', 'zone'], threshold: 0.3 });
+      applyFilters();
+      searchBox.addEventListener('input', applyFilters);
+      zoneFilter.addEventListener('change', applyFilters);
+      if (requestedRoomId) { const r = roomsData.find(x => x.id === requestedRoomId); if (r) setTimeout(() => focusRoom(r), 800); }
+    }
+
+    function applyFilters() {
+      let filtered = roomsData;
+      if (zoneFilter.value !== 'All') filtered = filtered.filter(r => r.zone === zoneFilter.value);
+      if (searchBox.value.trim() !== '') filtered = filtered.filter(r => fuse.search(searchBox.value.trim()).map(res => res.item).includes(r));
+      renderList(filtered);
+    }
+
+    function renderList(rooms) {
+      roomListEl.innerHTML = ''; 
+      counterEl.innerText = `${rooms.length} ${t('rooms')}${rooms.length > 1 ? t('s') : ''}`;
+      backgroundMarkersGroup.clearLayers(); 
+      
+      if (rooms.length === 0) {
+        roomListEl.innerHTML = `<div class="empty-state"><h3>${t('emptyTitle')}</h3><p>${t('emptyDesc')}</p></div>`;
+        return;
+      }
+
+      rooms.forEach(room => {
+        const li = document.createElement('li'); li.className = 'room-item'; const color = zoneColors[room.zone] || zoneColors['Other'];
+        li.innerHTML = `<div class="room-header"><div class="room-name" title="${room.name}">${room.name}</div><span class="zone-badge" style="background:${color}">${t(room.zone)}</span><div class="action-btns"><button class="icon-btn" onclick="openModal('edit', '${room.id}', event)">✏️</button></div></div>`;
+        li.onclick = () => focusRoom(room); roomListEl.appendChild(li);
+        
+        if (room.y && room.x) {
+          const bgMarker = L.marker([room.y, room.x], {icon: grayIcon}).addTo(backgroundMarkersGroup);
+          bgMarker.bindTooltip(room.name, { direction: 'top', offset: [0, -6], className: 'custom-tooltip' });
+          bgMarker.on('click', () => focusRoom(room));
+        }
+      });
+    }
+
+    function copyShareLink(url) { if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(url).then(() => showToast(t('copied'))).catch(() => fallbackCopy(url)); } else fallbackCopy(url); }
+    function fallbackCopy(text) { const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.top = "-999px"; ta.style.left = "-999px"; document.body.appendChild(ta); ta.focus(); ta.select(); try { if(document.execCommand('copy')) showToast(t('copied')); else prompt(t('cantCopy'), text); } catch (err) { prompt(t('cantCopy'), text); } document.body.removeChild(ta); }
+
+    function focusRoom(room) {
+      if (mode === 'routing') {
+        if (room.y && room.x) calculateAndDrawRoute(room.y, room.x);
+        else showToast(t('noLoc'), true);
+        return;
+      }
+      
+      if (mode !== 'view') return;
+      if (room.y && room.x) {
+        if (currentMarker) map.removeLayer(currentMarker);
+        currentMarker = L.marker([room.y, room.x], {icon: pulsingIcon}).addTo(map);
+        const shareUrl = `${scriptBaseUrl}?room=${room.id}`;
+        
+        currentMarker.bindPopup(`
+          <b>${room.name}</b><br><small>${t(room.zone)}</small><br><br>
+          ${room.info || t('noInfo')}<br>
+          <div class="popup-actions">
+            <button class="popup-btn popup-route-btn" onclick="startRouting('${room.id}')">${t('go')}</button>
+            <button class="popup-btn popup-edit-btn" onclick="openModal('edit', '${room.id}')">${t('edit')}</button>
+            <button class="popup-btn popup-share-btn" onclick="copyShareLink('${shareUrl}')">${t('share')}</button>
+          </div>
+        `).openPopup();
+        map.flyTo([room.y, room.x], 1, { duration: 0.8 });
+      } else alert(t('noLoc'));
+    }
+
+    function deleteRoomFromModal() {
+      if (confirm(t('delConfirm'))) {
+        const id = activeRoomId;
+        const idx = roomsData.findIndex(r => r.id === id);
+        if (idx > -1) { roomsData.splice(idx, 1); fuse.setCollection(roomsData); applyFilters(); if (currentMarker) { map.removeLayer(currentMarker); } }
+        google.script.run.deleteRoom(id);
+        closeModal(); showToast(t('deleted')); setMode('view');
+      }
+    }
+
+    function setMode(newMode, bannerHTML) {
+      mode = newMode;
+      if (mode === 'view') {
+        statusBanner.style.display = 'none'; map.getContainer().style.cursor = 'grab'; networkLayerGroup.clearLayers();
+      } else {
+        statusBanner.innerHTML = bannerHTML; statusBanner.style.display = 'block';
+        statusBanner.style.background = '#2c3e50'; map.getContainer().style.cursor = 'crosshair';
+        if(mode === 'network') drawNetwork();
+      }
+    }
+
+    function showToast(msg, isError = false) { 
+      const tb = document.getElementById('toastBanner'); tb.innerHTML = (isError ? '❌ ' : '✅ ') + msg;
+      tb.style.background = isError ? '#e74c3c' : '#27ae60'; tb.classList.add('toast-show'); 
+      if(window.toastTimeout) clearTimeout(window.toastTimeout);
+      window.toastTimeout = setTimeout(() => { tb.classList.remove('toast-show'); }, 3000); 
+    }
+    
+    function toggleAddMode() { setMode('add', `${t('clickToPlace')} <button onclick="setMode('view')">${t('cancel')}</button>`); }
+
+    function startRouting(roomId) {
+      if (currentMarker) currentMarker.closePopup();
+      targetRoomForRouting = roomsData.find(r => r.id === roomId);
+      routingLayerGroup.clearLayers(); document.getElementById('btnClearRoute').style.display = 'none';
+      resetMapView(); setMode('routing', `${t('startRouteMsg')} <button class="danger" onclick="setMode('view'); routingLayerGroup.clearLayers();">${t('cancel')}</button>`);
+    }
+
+    function pointToSegment(px, py, ax, ay, bx, by) {
+      let l2 = Math.pow(ax - bx, 2) + Math.pow(ay - by, 2);
+      if (l2 === 0) return { x: ax, y: ay, dist: Math.hypot(px - ax, py - ay) };
+      let t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / l2;
+      t = Math.max(0, Math.min(1, t));
+      let projX = ax + t * (bx - ax); let projY = ay + t * (by - ay);
+      return { x: projX, y: projY, dist: Math.hypot(px - projX, py - projY) };
+    }
+
+    function getNearestPointOnNetwork(y, x) {
+      if (edgesData.length === 0) return null;
+      let best = null; let minD = Infinity;
+      edgesData.forEach(e => {
+        let nA = nodesData.find(n => n.id === e.nodeA); let nB = nodesData.find(n => n.id === e.nodeB);
+        if (nA && nB) { let proj = pointToSegment(x, y, nA.x, nA.y, nB.x, nB.y); if (proj.dist < minD) { minD = proj.dist; best = { y: proj.y, x: proj.x, nodeA: nA.id, nodeB: nB.id }; } }
+      });
+      return best;
+    }
+
+    function calculateAndDrawRoute(startY, startX) {
+      if (!targetRoomForRouting || !targetRoomForRouting.y || nodesData.length === 0) return;
+      const startProj = getNearestPointOnNetwork(startY, startX); const endProj = getNearestPointOnNetwork(targetRoomForRouting.y, targetRoomForRouting.x);
+      routingLayerGroup.clearLayers();
+      L.marker([startY, startX], {icon: startIcon}).addTo(routingLayerGroup).bindTooltip("Start", {permanent: true, direction: 'top', className:'custom-tooltip'}).openTooltip();
+
+      if (!startProj || !endProj) {
+        L.polyline([[startY, startX], [targetRoomForRouting.y, targetRoomForRouting.x]], { color: '#e74c3c', weight: 4, dashArray: '10, 10' }).addTo(routingLayerGroup);
+        showToast(t('noNet'), true); setMode('view'); document.getElementById('btnClearRoute').style.display = 'block'; return;
+      }
+
+      const adj = {}; nodesData.forEach(n => adj[n.id] = []);
+      edgesData.forEach(e => {
+        const nA = nodesData.find(n => n.id === e.nodeA); const nB = nodesData.find(n => n.id === e.nodeB);
+        if (nA && nB) { const dist = Math.hypot(nA.x - nB.x, nA.y - nB.y); adj[e.nodeA].push({ node: e.nodeB, weight: dist }); adj[e.nodeB].push({ node: e.nodeA, weight: dist }); }
+      });
+
+      adj['_START_'] = []; let nSA = nodesData.find(n=>n.id===startProj.nodeA); let nSB = nodesData.find(n=>n.id===startProj.nodeB);
+      adj['_START_'].push({ node: startProj.nodeA, weight: Math.hypot(startProj.x - nSA.x, startProj.y - nSA.y) }); adj['_START_'].push({ node: startProj.nodeB, weight: Math.hypot(startProj.x - nSB.x, startProj.y - nSB.y) });
+      adj[startProj.nodeA].push({ node: '_START_', weight: Math.hypot(startProj.x - nSA.x, startProj.y - nSA.y) }); adj[startProj.nodeB].push({ node: '_START_', weight: Math.hypot(startProj.x - nSB.x, startProj.y - nSB.y) });
+
+      adj['_END_'] = []; let nEA = nodesData.find(n=>n.id===endProj.nodeA); let nEB = nodesData.find(n=>n.id===endProj.nodeB);
+      adj['_END_'].push({ node: endProj.nodeA, weight: Math.hypot(endProj.x - nEA.x, endProj.y - nEA.y) }); adj['_END_'].push({ node: endProj.nodeB, weight: Math.hypot(endProj.x - nEB.x, endProj.y - nEB.y) });
+      adj[endProj.nodeA].push({ node: '_END_', weight: Math.hypot(endProj.x - nEA.x, endProj.y - nEA.y) }); adj[endProj.nodeB].push({ node: '_END_', weight: Math.hypot(endProj.x - nEB.x, endProj.y - nEB.y) });
+
+      if ((startProj.nodeA === endProj.nodeA && startProj.nodeB === endProj.nodeB) || (startProj.nodeA === endProj.nodeB && startProj.nodeB === endProj.nodeA)) {
+        let directDist = Math.hypot(startProj.x - endProj.x, startProj.y - endProj.y);
+        adj['_START_'].push({ node: '_END_', weight: directDist }); adj['_END_'].push({ node: '_START_', weight: directDist });
+      }
+
+      const distances = {}; const prev = {}; const pq = [];
+      Object.keys(adj).forEach(k => { distances[k] = Infinity; prev[k] = null; });
+      distances['_START_'] = 0; pq.push({ node: '_START_', weight: 0 });
+
+      while (pq.length > 0) {
+        pq.sort((a, b) => a.weight - b.weight); const current = pq.shift().node;
+        if (current === '_END_') break;
+        adj[current].forEach(neighbor => {
+          const alt = distances[current] + neighbor.weight;
+          if (alt < distances[neighbor.node]) { distances[neighbor.node] = alt; prev[neighbor.node] = current; pq.push({ node: neighbor.node, weight: alt }); }
+        });
+      }
+
+      const path = []; let curr = '_END_';
+      while (curr) { path.unshift(curr); curr = prev[curr]; }
+
+      if (path.length > 0 && path[0] === '_START_') {
+        const pathCoords = path.map(id => { 
+          if (id === '_START_') return [startProj.y, startProj.x]; if (id === '_END_') return [endProj.y, endProj.x];
+          const n = nodesData.find(x => x.id === id); return [n.y, n.x]; 
+        });
+        
+        L.polyline([[startY, startX], pathCoords[0]], { color: 'var(--primary)', weight: 3, dashArray: '5, 10' }).addTo(routingLayerGroup);
+        L.polyline(pathCoords, { color: '#ffffff', weight: 8, opacity: 0.9 }).addTo(routingLayerGroup);
+        L.polyline(pathCoords, { color: 'var(--primary)', weight: 5, opacity: 1 }).addTo(routingLayerGroup);
+        L.polyline(pathCoords, { color: '#ffffff', weight: 3, opacity: 0.8, dashArray: '6, 18', className: 'path-flow-anim' }).addTo(routingLayerGroup);
+        L.polyline([pathCoords[pathCoords.length - 1], [targetRoomForRouting.y, targetRoomForRouting.x]], { color: 'var(--primary)', weight: 3, dashArray: '5, 10' }).addTo(routingLayerGroup);
+        
+        showToast(t('routeCalc'));
+      } else {
+        L.polyline([[startY, startX], [targetRoomForRouting.y, targetRoomForRouting.x]], { color: '#e74c3c', weight: 4, dashArray: '10, 10' }).addTo(routingLayerGroup);
+        showToast(t('disconnected'), true);
+      }
+      setMode('view'); document.getElementById('btnClearRoute').style.display = 'block';
+    }
+    
+    function clearRoute() { routingLayerGroup.clearLayers(); document.getElementById('btnClearRoute').style.display = 'none'; resetMapView(); }
+
+    function toggleNetworkMode() {
+      if(mode === 'network') { setMode('view'); activeNetworkNode = null; activeNetworkEdge = null; 
+      } else { 
+        const pwd = prompt(t('pwdReq'));
+        if (pwd !== ADMIN_PASSWORD) { if (pwd !== null) showToast(t('pwdErr'), true); return; }
+        activeNetworkNode = null; activeNetworkEdge = null; updateNetworkBanner(); 
+      }
+    }
+
+    function updateNetworkBanner() {
+      let html = `<b>${t('adminMode')} :</b> `;
+      if (activeNetworkEdge) html += `<button onclick="splitActiveEdge()">✂️ Insert Point</button> <button class="danger" onclick="deleteActiveEdge()">Delete</button> <button onclick="activeNetworkEdge=null;drawNetwork();updateNetworkBanner()">${t('cancel')}</button>`;
+      else if (activeNetworkNode) html += `<button onclick="activeNetworkNode = null; drawNetwork(); updateNetworkBanner();">Cut Line</button> <button class="danger" onclick="deleteActiveNode()">Delete Point</button>`;
+      else html += `Click to trace. Select to edit.`;
+      html += ` <button class="danger" onclick="setMode('view')">${t('quit')}</button>`;
+      setMode('network', html);
+    }
+
+    function deleteActiveNode() {
+      if (!activeNetworkNode) return; const id = activeNetworkNode;
+      nodesData = nodesData.filter(n => n.id !== id); edgesData = edgesData.filter(e => e.nodeA !== id && e.nodeB !== id);
+      activeNetworkNode = null; drawNetwork(); updateNetworkBanner(); google.script.run.deleteNetworkNode(id);
+    }
+    function deleteActiveEdge() {
+      if (!activeNetworkEdge) return; const a = activeNetworkEdge.nodeA, b = activeNetworkEdge.nodeB;
+      edgesData = edgesData.filter(e => !(e.nodeA === a && e.nodeB === b) && !(e.nodeA === b && e.nodeB === a));
+      activeNetworkEdge = null; drawNetwork(); updateNetworkBanner(); google.script.run.deleteNetworkEdge(a, b);
+    }
+    function splitActiveEdge() {
+      if (!activeNetworkEdge || !lastEdgeClickLatLng) return;
+      const y = Math.round(lastEdgeClickLatLng.lat); const x = Math.round(lastEdgeClickLatLng.lng);
+      const nA = activeNetworkEdge.nodeA; const nB = activeNetworkEdge.nodeB;
+      const tempId = 'temp_' + Date.now(); nodesData.push({ id: tempId, y, x });
+      edgesData = edgesData.filter(e => !(e.nodeA===nA && e.nodeB===nB) && !(e.nodeA===nB && e.nodeB===nA));
+      edgesData.push({nodeA: nA, nodeB: tempId}); edgesData.push({nodeA: tempId, nodeB: nB});
+      activeNetworkEdge = null; activeNetworkNode = tempId; drawNetwork(); updateNetworkBanner();
+      google.script.run.withSuccessHandler(res => {
+        const nIdx = nodesData.findIndex(n => n.id === tempId); if (nIdx > -1) nodesData[nIdx] = res.newNode;
+        edgesData = edgesData.filter(e => e.nodeA !== tempId && e.nodeB !== tempId); edgesData.push(res.edge1); edgesData.push(res.edge2);
+        if (activeNetworkNode === tempId) activeNetworkNode = res.newNode.id; drawNetwork();
+      }).splitNetworkEdge(nA, nB, y, x);
+    }
+
+    function drawNetwork() {
+      networkLayerGroup.clearLayers();
+      edgesData.forEach(edge => {
+        const nA = nodesData.find(n => n.id === edge.nodeA); const nB = nodesData.find(n => n.id === edge.nodeB);
+        if (nA && nB) {
+          const isSelected = activeNetworkEdge && ((activeNetworkEdge.nodeA === edge.nodeA && activeNetworkEdge.nodeB === edge.nodeB) || (activeNetworkEdge.nodeA === edge.nodeB && activeNetworkEdge.nodeB === edge.nodeA));
+          const poly = L.polyline([[nA.y, nA.x], [nB.y, nB.x]], { color: isSelected ? '#e74c3c' : '#3498db', weight: isSelected ? 6 : 4, opacity: 0.8 }).addTo(networkLayerGroup);
+          poly.on('click', (e) => { L.DomEvent.stopPropagation(e); if (mode === 'network') { activeNetworkEdge = edge; activeNetworkNode = null; lastEdgeClickLatLng = e.latlng; drawNetwork(); updateNetworkBanner(); } });
+        }
+      });
+      nodesData.forEach(node => {
+        const isSelected = (node.id === activeNetworkNode);
+        const circle = L.circleMarker([node.y, node.x], { color: '#fff', weight: 1, fillColor: isSelected ? '#f1c40f' : '#2980b9', fillOpacity: 1, radius: isSelected ? 6 : 4 }).addTo(networkLayerGroup);
+        circle.on('click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          if (mode === 'network') {
+            if (activeNetworkNode && activeNetworkNode !== node.id && !activeNetworkEdge) { edgesData.push({nodeA: activeNetworkNode, nodeB: node.id}); google.script.run.addEdgeOnly(activeNetworkNode, node.id); }
+            activeNetworkNode = node.id; activeNetworkEdge = null; drawNetwork(); updateNetworkBanner();
+          }
+        });
+      });
+    }
+
+    map.on('click', function(e) {
+      const y = Math.round(e.latlng.lat); const x = Math.round(e.latlng.lng);
+      if (mode === 'add') { pendingCoords = { y, x }; openModal('add', null, null, getClosestZone(y, x)); } 
+      else if (mode === 'reposition') { pendingCoords = { y, x }; if (currentMarker) map.removeLayer(currentMarker); currentMarker = L.marker([y, x], {icon: pulsingIcon}).addTo(map); setMode('view'); document.getElementById('modalOverlay').style.display = 'flex'; }
+      else if (mode === 'routing') calculateAndDrawRoute(y, x);
+      else if (mode === 'network') {
+        if (activeNetworkEdge) { activeNetworkEdge = null; drawNetwork(); updateNetworkBanner(); return; }
+        const tempId = 'temp_' + Date.now(); nodesData.push({ id: tempId, y, x }); const parentId = activeNetworkNode;
+        if (parentId) { edgesData.push({ nodeA: parentId, nodeB: tempId }); } 
+        activeNetworkNode = tempId; drawNetwork(); updateNetworkBanner();
+        google.script.run.withSuccessHandler((result) => {
+          const nIdx = nodesData.findIndex(n => n.id === tempId); if (nIdx > -1) nodesData[nIdx] = result.node;
+          if (parentId) { const eIdx = edgesData.findIndex(e => e.nodeA === parentId && e.nodeB === tempId); if (eIdx > -1) edgesData[eIdx] = result.edge; }
+          if (activeNetworkNode === tempId) activeNetworkNode = result.node.id; drawNetwork();
+        }).addNodeAndEdge(y, x, parentId);
+      }
+    });
+
+    function getClosestZone(y, x) {
+      let closest = 'Zone A'; let minDistance = Infinity;
+      roomsData.forEach(r => { if (r.y && r.x) { let dist = Math.pow(r.y - y, 2) + Math.pow(r.x - x, 2); if (dist < minDistance) { minDistance = dist; closest = r.zone; } } });
+      return closest;
+    }
+
+    function openModal(action, id = null, event = null, suggestedZone = 'Zone A') {
+      if (event) event.stopPropagation(); activeRoomId = id;
+      const m = document.getElementById('modalOverlay'), tTitle = document.getElementById('modalTitle'), btn = document.getElementById('btnReposition'), delBtn = document.getElementById('btnDeleteRoom');
+      if (action === 'edit') {
+        const room = roomsData.find(r => r.id === id); tTitle.innerText = t('editRoom');
+        document.getElementById('roomName').value = room.name; document.getElementById('roomZone').value = room.zone; document.getElementById('roomInfo').value = room.info;
+        pendingCoords = { y: room.y, x: room.x }; btn.style.display = 'block'; delBtn.style.display = 'block';
+      } else {
+        tTitle.innerText = t('newRoom'); document.getElementById('roomName').value = ''; document.getElementById('roomZone').value = suggestedZone; document.getElementById('roomInfo').value = ''; btn.style.display = 'none'; delBtn.style.display = 'none';
+      }
+      setMode('view'); if (currentMarker) currentMarker.closePopup(); m.style.display = 'flex';
+    }
+    
+    function closeModal() { document.getElementById('modalOverlay').style.display = 'none'; activeRoomId = null; pendingCoords = null; }
+    function startRepositionMode() { document.getElementById('modalOverlay').style.display = 'none'; setMode('reposition', `${t('editLoc')} <button onclick="cancelReposition()">${t('cancel')}</button>`); }
+    function cancelReposition() { setMode('view'); document.getElementById('modalOverlay').style.display = 'flex'; }
+
+    function saveRoom() {
+      const name = document.getElementById('roomName').value.trim(); const zone = document.getElementById('roomZone').value; const info = document.getElementById('roomInfo').value.trim();
+      if (!name) return alert(t('reqName'));
+      document.getElementById('modalOverlay').style.display = 'none'; showToast(t('saving'));
+      
+      if (activeRoomId) {
+        google.script.run.withSuccessHandler((res) => {
+          roomsData[roomsData.findIndex(r => r.id === activeRoomId)] = res.room; fuse.setCollection(roomsData); applyFilters(); showToast(t('updated')); focusRoom(res.room); activeRoomId = null;
+        }).updateRoom(activeRoomId, name, info, pendingCoords.y, pendingCoords.x, zone);
+      } else {
+        google.script.run.withSuccessHandler((res) => {
+          roomsData.push(res); fuse.setCollection(roomsData); applyFilters(); showToast(t('created')); focusRoom(res);
+        }).addRoom(name, info, pendingCoords.y, pendingCoords.x, zone);
+      }
+    }
+
+    function openFeedbackModal() { document.getElementById('feedbackModalOverlay').style.display = 'flex'; }
+    function closeFeedbackModal() { document.getElementById('feedbackModalOverlay').style.display = 'none'; document.getElementById('feedbackText').value = ''; }
+    
+    function submitFeedback() {
+      const text = document.getElementById('feedbackText').value.trim();
+      if (!text) return alert(t('reqName')); // Using generic required alert for simplicity
+      document.getElementById('feedbackModalOverlay').style.display = 'none';
+      showToast(t('saving'));
+      google.script.run.withSuccessHandler(() => { showToast(t('feedbackSent')); document.getElementById('feedbackText').value = ''; })
+                       .withFailureHandler(() => { showToast(t('feedbackErr'), true); })
+                       .sendFeedbackEmail(text);
+    }
+  </script>
+</body>
+</html>
